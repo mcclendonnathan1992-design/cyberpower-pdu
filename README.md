@@ -1,49 +1,76 @@
 # CyberPower PDU Automation
 
-A Python automation module for controlling CyberPower rack PDUs over SNMP. The project provides a small object-oriented interface for reading outlet state, switching outlets on or off, and validating behavior through mocked pytest tests.
+A Python infrastructure-automation module for controlling CyberPower rack PDUs over SNMP. The project provides an object-oriented interface for reading outlet state, switching outlets on or off, loading device configuration, and validating behavior through mocked pytest tests.
 
-## Why this project matters
+## Business problem
 
-This repository demonstrates infrastructure automation, hardware-adjacent test engineering, and safe validation practices. The unit tests mock SNMP interactions so the project can be validated without access to a physical PDU.
+Integration and lab teams often need to power-cycle devices, recover failed hardware, or reset test fixtures during regression runs. Doing that manually slows down test execution, introduces inconsistent recovery steps, and creates operational risk when engineers are working with shared lab infrastructure.
 
-## Key capabilities
+This project solves that problem by creating a scriptable PDU control layer that can be reused by test harnesses, CI jobs, or operator tools to manage outlet state in a repeatable way.
 
-- Control CyberPower PDU outlets over SNMPv1
-- Load one or more PDU definitions from JSON configuration
-- Turn individual outlets on or off
-- Read outlet state with SNMP GET
-- Validate outlet index boundaries
-- Run offline unit tests with mocked SNMP calls
-- Designed for reuse from test harnesses, CI jobs, and infrastructure scripts
+## What I built
 
-## Project layout
+I built a Python class that loads CyberPower PDU definitions from JSON and exposes simple methods such as `get()`, `on()`, `off()`, and `list_outlets()` for outlet control.
+
+One engineering decision I made was to mock all SNMP operations in the pytest suite. That makes the tests safe to run anywhere and validates the control logic without requiring access to physical power hardware.
+
+## Services, tools, and why they were used
+
+| Service / Tool | Why it was used |
+|---|---|
+| Python | Core automation language for infrastructure-control logic. |
+| pysnmp | Provides SNMP GET/SET communication with CyberPower PDU devices. |
+| JSON | Stores device inventory in a simple, portable configuration format. |
+| pytest | Validates configuration loading, outlet validation, and control behavior. |
+| unittest.mock | Mocks SNMP communication so tests do not touch live equipment. |
+| SNMPv1 OIDs | Maps outlet indexes to CyberPower outlet-control object identifiers. |
+
+## Architecture
 
 ```text
-.
-├── cyberpower_pdu.py        # Main PDU controller class
-├── test_cyberpower_pdu.py   # Mocked unit tests; no physical PDU required
-└── README.md
+devices.json
+  |
+  |-- PDU name, IP address, SNMP communities, timeout, retries
+  v
+CyberPowerPDU.from_config()
+  |
+  |-- Load selected PDU definition
+  |-- Validate outlet index
+  |-- Map outlet number to outlet OID
+  |
+  |-- GET path
+  |     Read outlet state over SNMP
+  |
+  |-- SET path
+  |     Set outlet state and verify readback
+  v
+Operator script, test harness, or CI workflow
 ```
 
-## Setup
+## Key architectural decisions
+
+| Decision | Reason | Problem solved |
+|---|---|---|
+| Wrap SNMP behavior in a class | Keep device state and operations together | Makes the code reusable from test harnesses and scripts |
+| Load PDUs from JSON | Separate device inventory from code | Allows different lab devices without editing source code |
+| Validate outlet indexes before SNMP calls | Fail safely before touching hardware | Prevents invalid outlet commands |
+| Use mocked SNMP tests | Validate logic without live equipment | Makes regression testing safe and portable |
+| Verify SET operations with readback | Confirm command effect after action | Reduces false assumptions about infrastructure state |
+
+## Deployment
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/mcclendonnathan1992-design/cyberpower-pdu.git
 cd cyberpower-pdu
-
-# 2. Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate      # macOS/Linux
 # .venv\Scripts\activate       # Windows PowerShell
-
-# 3. Install dependencies
-pip install pysnmp pytest
+pip install -r requirements.txt
 ```
 
-## Example configuration
+## Example sanitized configuration
 
-Create a local `devices.json` file. Do not commit real community strings, IP addresses, or production network details.
+Do not commit real SNMP community strings, production IP addresses, or lab inventory files.
 
 ```json
 {
@@ -66,37 +93,49 @@ Create a local `devices.json` file. Do not commit real community strings, IP add
 from cyberpower_pdu import CyberPowerPDU
 
 pdu = CyberPowerPDU.from_config("devices.json", name="LAB-PDU-1")
-
-print(pdu.get(1))      # "ON", "OFF", or None
-pdu.on(1)              # Turn outlet 1 on
-pdu.off(1)             # Turn outlet 1 off
+print(pdu.get(1))
+pdu.on(1)
+pdu.off(1)
 print(pdu.list_outlets())
 ```
 
-## Run tests
+## Test strategy
 
 ```bash
 pytest test_cyberpower_pdu.py -v
 ```
 
-The tests mock SNMP GET/SET behavior and can run without a physical CyberPower PDU.
+The test suite mocks SNMP GET/SET behavior and validates:
 
-## Security notes
+- Device configuration loading
+- PDU selection by name
+- Outlet index boundary checks
+- ON/OFF command behavior
+- Failed SET handling
+- Readback mismatch handling
+- Missing config-file behavior
+
+## What the infrastructure solves
+
+- Allows test harnesses to control lab power state programmatically.
+- Reduces manual intervention during device recovery and regression setup.
+- Creates a safer validation path by testing logic without touching live hardware.
+- Provides a reusable infrastructure-control layer for larger automation platforms.
+
+## Task–Tool–Impact bullets
+
+- Built a Python SNMP automation module using `pysnmp` and object-oriented design to control CyberPower PDU outlets from scripts, test harnesses, or CI workflows.
+- Implemented mocked pytest coverage using `unittest.mock` and async SNMP stubs to validate outlet reads, on/off commands, error handling, and readback verification without requiring physical hardware.
+- Designed JSON-based device configuration loading to separate lab inventory from source code and support reusable infrastructure automation across multiple PDUs.
+- Added outlet-index validation and SET/readback verification to reduce the risk of invalid commands and improve confidence in infrastructure state changes.
+
+## Public-repo hygiene
 
 - Do not commit production SNMP community strings.
-- Prefer restricted lab networks and non-default community strings.
+- Use placeholder IP ranges such as `192.0.2.0/24` in examples.
 - Treat PDU control as privileged infrastructure access.
-- Keep real device inventory files outside the repository or add them to `.gitignore`.
+- Keep real device inventory files outside the repository or ignored by Git.
 
-## Engineering practices demonstrated
+## Resume alignment
 
-- Object-oriented Python interface design
-- Config-driven infrastructure automation
-- Mocked hardware interactions for safe tests
-- pytest fixtures and patching
-- Defensive input validation for outlet indexes
-- Clear separation between implementation and tests
-
-## Resume bullet
-
-Built a Python-based CyberPower PDU automation module using SNMP and pytest, including mocked unit tests that validate outlet state reads, on/off commands, configuration loading, and boundary handling without requiring physical hardware.
+This project supports roles involving Python automation, lab infrastructure control, pytest mocking, networked systems validation, and repeatable secure test environments.
